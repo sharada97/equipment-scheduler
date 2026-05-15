@@ -5,11 +5,11 @@ import { generateDateRange } from '@/lib/utils';
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const event = getEvent(id);
+    const event = await getEvent(id);
     if (!event) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
-    const bookings = getBookings(id);
+    const bookings = await getBookings(id);
     return NextResponse.json({ event, bookings });
   } catch {
     return NextResponse.json({ error: 'Failed to fetch event' }, { status: 500 });
@@ -20,7 +20,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const { id } = await params;
     const data = await req.json();
-    const event = getEvent(id);
+    const event = await getEvent(id);
     if (!event) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
@@ -34,7 +34,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
-    const updated = updateEvent(id, {
+    const updated = await updateEvent(id, {
       name: data.name ?? event.name,
       equipment_name: data.equipment_name ?? event.equipment_name,
       dates: dates ?? event.dates,
@@ -55,7 +55,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const success = deleteEvent(id);
+    const success = await deleteEvent(id);
     if (!success) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }

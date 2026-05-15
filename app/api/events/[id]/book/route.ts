@@ -11,12 +11,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    if (hasConflict(id, date, time_start, time_end)) {
+    if (await hasConflict(id, date, time_start, time_end)) {
       return NextResponse.json({ error: 'This time overlaps with an existing booking' }, { status: 409 });
     }
 
     const token = randomBytes(16).toString('hex');
-    const booking = createBooking({ event_id: id, participant_name, date, time_start, time_end, token });
+    const booking = await createBooking({ event_id: id, participant_name, date, time_start, time_end, token });
     return NextResponse.json({ booking, token });
   } catch {
     return NextResponse.json({ error: 'Failed to book slot' }, { status: 500 });
@@ -32,11 +32,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    if (!verifyBookingToken(booking_id, token)) {
+    if (!(await verifyBookingToken(booking_id, token))) {
       return NextResponse.json({ error: 'Unauthorized: invalid token' }, { status: 403 });
     }
 
-    const updated = updateBooking(booking_id, { date, time_start, time_end });
+    const updated = await updateBooking(booking_id, { date, time_start, time_end });
     if (!updated) {
       return NextResponse.json({ error: 'Booking not found or time conflicts with existing booking' }, { status: 409 });
     }
@@ -55,13 +55,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const isBookingOwner = verifyBookingToken(booking_id, token);
-    const isAdmin = verifyAdminToken(id, token);
+    const isBookingOwner = await verifyBookingToken(booking_id, token);
+    const isAdmin = await verifyAdminToken(id, token);
     if (!isBookingOwner && !isAdmin) {
       return NextResponse.json({ error: 'Unauthorized: invalid token' }, { status: 403 });
     }
 
-    const deleted = deleteBookingById(booking_id);
+    const deleted = await deleteBookingById(booking_id);
     if (!deleted) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }

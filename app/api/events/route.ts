@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     }
 
     const adminToken = randomBytes(16).toString('hex');
-    const event = createEvent({
+    const event = await createEvent({
       id: nanoid(10),
       name,
       equipment_name,

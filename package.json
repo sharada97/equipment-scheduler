@@ -12,16 +12,16 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "better-sqlite3": "^12.9.0",
     "nanoid": "^5.1.11",
     "next": "16.2.6",
+    "pg": "^8.11.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
+    "@types/pg": "^8.11.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

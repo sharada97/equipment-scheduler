@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const success = createSupportMessage(name, email, message);
+    const success = await createSupportMessage(name, email, message);
     if (!success) {
       return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
     }
