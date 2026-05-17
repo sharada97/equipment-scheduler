@@ -29,6 +29,12 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [ownedBookingIds, setOwnedBookingIds] = useState<Set<number>>(new Set());
 
+  // For dragging existing bookings
+  const [draggedBooking, setDraggedBooking] = useState<Booking | null>(null);
+  const [dragStartY, setDragStartY] = useState<number | null>(null);
+  const draggedBookingRef = useRef<Booking | null>(null);
+  const dragStartYRef = useRef<number | null>(null);
+
   // Load owned booking tokens on mount and whenever bookings change
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -120,6 +126,84 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
     document.addEventListener('mouseup', onUp);
     return () => document.removeEventListener('mouseup', onUp);
   }, [finalizeSelection]);
+
+  // Handlers for dragging existing bookings
+  const handleBookingMouseDown = (e: React.MouseEvent, booking: Booking) => {
+    e.stopPropagation();
+    draggedBookingRef.current = booking;
+    dragStartYRef.current = e.clientY;
+    setDraggedBooking(booking);
+    setDragStartY(e.clientY);
+  };
+
+  const handleBookingMouseMove = (e: React.MouseEvent) => {
+    if (!draggedBookingRef.current || dragStartYRef.current === null) return;
+  };
+
+  const handleBookingMouseUp = useCallback(async (e: React.MouseEvent, booking: Booking) => {
+    e.stopPropagation();
+    if (!draggedBookingRef.current || dragStartYRef.current === null) {
+      draggedBookingRef.current = null;
+      dragStartYRef.current = null;
+      setDraggedBooking(null);
+      setDragStartY(null);
+      return;
+    }
+
+    const deltaY = e.clientY - dragStartYRef.current;
+    draggedBookingRef.current = null;
+    dragStartYRef.current = null;
+    setDraggedBooking(null);
+    setDragStartY(null);
+
+    // If drag is small, open edit modal instead
+    if (Math.abs(deltaY) < 5) {
+      setEditingBooking(booking);
+      return;
+    }
+
+    // Calculate time change based on pixel offset
+    const slotPixels = SLOT_H;
+    const minutesPerSlot = GRID_MINS;
+    const deltaMinutes = Math.round((deltaY / slotPixels) * minutesPerSlot);
+
+    // Calculate new times
+    const [startH, startM] = booking.time_start.split(':').map(Number);
+    const [endH, endM] = booking.time_end.split(':').map(Number);
+    const startTotalMin = startH * 60 + startM + deltaMinutes;
+    const endTotalMin = endH * 60 + endM + deltaMinutes;
+
+    // Validate times are within event bounds
+    const [eventStartH, eventStartM] = event.time_start.split(':').map(Number);
+    const [eventEndH, eventEndM] = event.time_end.split(':').map(Number);
+    const eventStartMin = eventStartH * 60 + eventStartM;
+    const eventEndMin = eventEndH * 60 + eventEndM;
+
+    if (startTotalMin < eventStartMin || endTotalMin > eventEndMin) {
+      return; // Out of bounds
+    }
+
+    const newTimeStart = `${String(Math.floor(startTotalMin / 60)).padStart(2, '0')}:${String(startTotalMin % 60).padStart(2, '0')}`;
+    const newTimeEnd = `${String(Math.floor(endTotalMin / 60)).padStart(2, '0')}:${String(endTotalMin % 60).padStart(2, '0')}`;
+
+    // Call update API
+    const token = adminToken || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('bookingTokens') || '{}')[booking.id.toString()] : null);
+    const res = await fetch(`/api/events/${event.id}/book`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        booking_id: booking.id,
+        token,
+        date: booking.date,
+        time_start: newTimeStart,
+        time_end: newTimeEnd,
+      }),
+    });
+
+    if (res.ok) {
+      onRefresh();
+    }
+  }, [event, adminToken, onRefresh]);
 
   return (
     <div className="select-none">
@@ -243,11 +327,13 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
                   <div
                     key={booking.id}
                     className={`absolute rounded z-10 overflow-hidden p-1.5 text-white text-xs transition-opacity ${
-                      isOwned ? 'cursor-pointer hover:opacity-80' : 'cursor-default opacity-70'
-                    }`}
+                      isOwned ? 'cursor-grab hover:opacity-80 active:cursor-grabbing' : 'cursor-default opacity-70'
+                    } ${draggedBooking?.id === booking.id ? 'opacity-60' : ''}`}
                     style={{ top: top + 1, height: height - 2, left: 3, right: 3, backgroundColor: color }}
-                    onClick={() => isOwned && setEditingBooking(booking)}
-                    title={isOwned ? 'Click to edit' : 'Not your booking'}
+                    onMouseDown={(e) => isOwned && handleBookingMouseDown(e, booking)}
+                    onMouseMove={(e) => isOwned && handleBookingMouseMove(e)}
+                    onMouseUp={(e) => isOwned && handleBookingMouseUp(e, booking)}
+                    title={isOwned ? 'Drag to move time, click to edit' : 'Not your booking'}
                   >
                     <div className="font-semibold leading-tight truncate">{booking.participant_name}</div>
                     {height > 30 && (
