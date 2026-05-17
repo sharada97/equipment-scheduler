@@ -29,13 +29,13 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [ownedBookingIds, setOwnedBookingIds] = useState<Set<number>>(new Set());
 
-  // Load owned booking tokens on mount
+  // Load owned booking tokens on mount and whenever bookings change
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const tokens = JSON.parse(localStorage.getItem('bookingTokens') || '{}');
       setOwnedBookingIds(new Set(Object.keys(tokens).map(Number)));
     }
-  }, []);
+  }, [bookings]);
 
   const isDraggingRef = useRef(false);
   const dragDateRef = useRef<string | null>(null);
