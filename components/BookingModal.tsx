@@ -48,7 +48,7 @@ export default function BookingModal({ eventId, date, timeStart, timeEnd, onClos
     // Store token in localStorage for future edits
     if (typeof window !== 'undefined' && token && booking?.id) {
       const tokens = JSON.parse(localStorage.getItem('bookingTokens') || '{}');
-      tokens[booking.id] = token;
+      tokens[booking.id.toString()] = token;
       localStorage.setItem('bookingTokens', JSON.stringify(tokens));
     }
 

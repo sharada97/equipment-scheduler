@@ -25,7 +25,7 @@ export default function EditBookingModal({ booking, eventId, onClose, onUpdated,
     }
 
     setLoading(true);
-    const token = adminToken || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('bookingTokens') || '{}')[booking.id] : null);
+    const token = adminToken || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('bookingTokens') || '{}')[booking.id.toString()] : null);
 
     const res = await fetch(`/api/events/${eventId}/book`, {
       method: 'PUT',
@@ -55,7 +55,7 @@ export default function EditBookingModal({ booking, eventId, onClose, onUpdated,
     if (!window.confirm('Delete this booking?')) return;
 
     setLoading(true);
-    const token = adminToken || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('bookingTokens') || '{}')[booking.id] : null);
+    const token = adminToken || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('bookingTokens') || '{}')[booking.id.toString()] : null);
 
     const res = await fetch(`/api/events/${eventId}/book`, {
       method: 'DELETE',
