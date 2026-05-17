@@ -32,7 +32,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    if (!(await verifyBookingToken(booking_id, token))) {
+    const isBookingOwner = await verifyBookingToken(booking_id, token);
+    const isAdmin = await verifyAdminToken(id, token);
+    if (!isBookingOwner && !isAdmin) {
       return NextResponse.json({ error: 'Unauthorized: invalid token' }, { status: 403 });
     }
 
