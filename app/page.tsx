@@ -5,11 +5,11 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center px-4">
       <div className="text-center max-w-md">
         <div className="text-5xl mb-4">🔬</div>
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">LabSlot</h1>
-        <p className="text-gray-500 mb-2">
+        <h1 className="text-4xl font-bold text-gray-900 mb-2">Lab Equipment Scheduler</h1>
+        <p className="text-base text-gray-700 font-medium mb-2">
           Share equipment time fairly — no conflicts, no overlapping bookings.
         </p>
-        <p className="text-sm text-gray-400 mb-8">
+        <p className="text-sm text-gray-600 mb-8">
           Create a schedule for your equipment, share the link with your lab groups. Each group picks an open slot.
         </p>
 
