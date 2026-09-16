@@ -9,6 +9,18 @@ import EditBookingModal from './EditBookingModal';
 const SLOT_H = 40;   // px per 30-min row
 const GRID_MINS = 30; // grid resolution
 
+// Monday → Sunday of the current week, as local YYYY-MM-DD strings
+function currentWeekDates(): string[] {
+  const monday = new Date();
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+}
+
 interface Props {
   event: Event;
   bookings: Booking[];
@@ -51,7 +63,10 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
   const slots = generateTimeSlots(event.time_start, event.time_end, GRID_MINS);
   const totalHeight = slots.length * SLOT_H;
 
-  const visibleDates = view === 'daily' ? [event.dates[dayIdx]] : event.dates;
+  const visibleDates =
+    view === 'daily' ? [event.dates[dayIdx]] :
+    view === 'weekly' ? currentWeekDates() :
+    event.dates;
 
   // Map: date → bookings[]
   const bookingsByDate = new Map<string, Booking[]>();
@@ -249,6 +264,12 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
             >
               ›
             </button>
+          </div>
+        )}
+
+        {view === 'weekly' && (
+          <div className="text-sm font-semibold text-gray-700">
+            {formatDate(visibleDates[0])} – {formatDate(visibleDates[6])}
           </div>
         )}
 
