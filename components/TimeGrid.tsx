@@ -8,6 +8,7 @@ import EditBookingModal from './EditBookingModal';
 
 const SLOT_H = 40;   // px per 30-min row
 const GRID_MINS = 30; // grid resolution
+const DEFAULT_WINDOW_HOURS = 8; // grid shows 9 AM – 5 PM; scroll for earlier/later
 
 // Monday → Sunday of the week containing `today` (YYYY-MM-DD)
 function weekDates(today: string): string[] {
@@ -82,6 +83,17 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
 
   const slots = generateTimeSlots(event.time_start, event.time_end, GRID_MINS);
   const totalHeight = slots.length * SLOT_H;
+
+  // On opening a view, scroll so the viewer's 9 AM sits at the top of the grid
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const firstDate = view === 'daily' ? event.dates[dayIdx] : todayInZone(eventTz);
+  useEffect(() => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+    const nineIdx = slots.findIndex(slot => convertZone(firstDate, slot, eventTz, viewerTz).time >= '09:00');
+    el.scrollTop = nineIdx > 0 ? 20 + nineIdx * SLOT_H : 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, event.id]);
 
   const visibleDates =
     view === 'daily' ? [event.dates[dayIdx]] :
@@ -347,7 +359,7 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
         </div>
       ) : (
       /* Scrollable grid with synced header */
-      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 560 }}>
+      <div ref={gridScrollRef} className="overflow-x-auto overflow-y-auto" style={{ maxHeight: DEFAULT_WINDOW_HOURS * 2 * SLOT_H + 60 }}>
         {/* Date header row (inside scroll container for horizontal sync) */}
         <div className="flex border-b border-gray-200 sticky top-0 bg-white z-5">
           <div className="w-14 shrink-0" />
