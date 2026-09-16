@@ -1,21 +1,25 @@
 'use client';
 
 import { useState } from 'react';
-import { formatDate, formatTime } from '@/lib/utils';
+import { formatDate, formatTime, convertZone, viewerTimezone } from '@/lib/utils';
 
 interface Props {
   eventId: string;
   date: string;
   timeStart: string;
   timeEnd: string;
+  eventTz: string;
   onClose: () => void;
   onBooked: () => void;
 }
 
-export default function BookingModal({ eventId, date, timeStart, timeEnd, onClose, onBooked }: Props) {
+export default function BookingModal({ eventId, date, timeStart, timeEnd, eventTz, onClose, onBooked }: Props) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const viewerTz = viewerTimezone();
+  const localStart = convertZone(date, timeStart, eventTz, viewerTz);
+  const localEnd = convertZone(date, timeEnd, eventTz, viewerTz);
 
   async function handleBook() {
     if (!name.trim()) {
@@ -60,8 +64,8 @@ export default function BookingModal({ eventId, date, timeStart, timeEnd, onClos
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-1">Confirm booking</h2>
         <div className="bg-blue-50 rounded-lg px-3 py-2 mb-4">
-          <p className="text-sm font-medium text-blue-800">{formatDate(date)}</p>
-          <p className="text-sm text-blue-600">{formatTime(timeStart)} – {formatTime(timeEnd)}</p>
+          <p className="text-sm font-medium text-blue-800">{formatDate(localStart.date)}</p>
+          <p className="text-sm text-blue-600">{formatTime(localStart.time)} – {formatTime(localEnd.time)}{localEnd.date !== localStart.date && ' (next day)'}</p>
         </div>
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Your name or group name</label>

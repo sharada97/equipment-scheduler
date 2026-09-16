@@ -1,13 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { generateDateRange } from '@/lib/utils';
+import { generateDateRange, viewerTimezone, DEFAULT_TIMEZONE } from '@/lib/utils';
 
 export default function CreatePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
+
+  // Default to the creator's zone (browser-only, so set after mount)
+  useEffect(() => setTimezone(viewerTimezone()), []);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -42,6 +46,7 @@ export default function CreatePage() {
       time_start: data.get('time_start'),
       time_end: data.get('time_end'),
       slot_duration: 30,
+      timezone: data.get('timezone'),
     };
 
     const res = await fetch('/api/events', {
@@ -135,6 +140,21 @@ export default function CreatePage() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Equipment Time Zone</label>
+            <select
+              name="timezone"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {Intl.supportedValuesOf('timeZone').map(tz => (
+                <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">Where the equipment is. Each visitor sees times in their own zone.</p>
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}

@@ -24,6 +24,10 @@ async function initSchema() {
     `);
 
     await client.query(`
+      ALTER TABLE events ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles';
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS bookings (
         id SERIAL PRIMARY KEY,
         event_id TEXT NOT NULL,
@@ -66,6 +70,7 @@ export interface Event {
   time_start: string;
   time_end: string;
   slot_duration: number;
+  timezone: string;
   admin_token: string;
   created_at: number;
 }
@@ -84,9 +89,9 @@ export interface Booking {
 export async function createEvent(event: Omit<Event, 'created_at'>): Promise<Event> {
   const now = Date.now();
   const result = await pool.query(
-    `INSERT INTO events (id, name, equipment_name, dates, time_start, time_end, slot_duration, admin_token, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [event.id, event.name, event.equipment_name, JSON.stringify(event.dates), event.time_start, event.time_end, event.slot_duration, event.admin_token, now]
+    `INSERT INTO events (id, name, equipment_name, dates, time_start, time_end, slot_duration, timezone, admin_token, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [event.id, event.name, event.equipment_name, JSON.stringify(event.dates), event.time_start, event.time_end, event.slot_duration, event.timezone, event.admin_token, now]
   );
   return { ...event, created_at: now };
 }

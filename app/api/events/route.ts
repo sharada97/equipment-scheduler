@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createEvent } from '@/lib/db';
 import { nanoid } from 'nanoid';
+import { DEFAULT_TIMEZONE } from '@/lib/utils';
 import { randomBytes } from 'crypto';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, equipment_name, dates, time_start, time_end, slot_duration } = body;
+    const { name, equipment_name, dates, time_start, time_end, slot_duration, timezone } = body;
 
     if (!name || !equipment_name || !dates?.length || !time_start || !time_end) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest) {
       time_start,
       time_end,
       slot_duration: slot_duration ?? 60,
+      timezone: timezone || DEFAULT_TIMEZONE,
       admin_token: adminToken,
     });
 

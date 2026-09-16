@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { generateTimeSlots, formatTime, formatDate, nameToColorHex, addMinutes } from '@/lib/utils';
+import { generateTimeSlots, formatTime, formatDate, nameToColorHex, addMinutes, convertZone, todayInZone, viewerTimezone, shortZoneName, DEFAULT_TIMEZONE } from '@/lib/utils';
 import { Booking, Event } from '@/lib/db';
 import BookingModal from './BookingModal';
 import EditBookingModal from './EditBookingModal';
@@ -9,17 +9,29 @@ import EditBookingModal from './EditBookingModal';
 const SLOT_H = 40;   // px per 30-min row
 const GRID_MINS = 30; // grid resolution
 
-// Monday → Sunday of the current week, as local YYYY-MM-DD strings
-function currentWeekDates(): string[] {
-  const monday = new Date();
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+// Monday → Sunday of the week containing `today` (YYYY-MM-DD)
+function weekDates(today: string): string[] {
+  const monday = new Date(today + 'T00:00:00Z');
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    d.setUTCDate(monday.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
   });
 }
+
+// Calendar cells (Mon-first) for the month containing `today`; null = padding
+function monthCells(today: string): (string | null)[] {
+  const first = new Date(today.slice(0, 8) + '01T00:00:00Z');
+  const cells: (string | null)[] = Array((first.getUTCDay() + 6) % 7).fill(null);
+  for (const d = new Date(first); d.getUTCMonth() === first.getUTCMonth(); d.setUTCDate(d.getUTCDate() + 1)) {
+    cells.push(d.toISOString().slice(0, 10));
+  }
+  while (cells.length % 7) cells.push(null);
+  return cells;
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 interface Props {
   event: Event;
@@ -60,12 +72,18 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
   const dragStartRef = useRef<number | null>(null);
   const dragEndRef = useRef<number | null>(null);
 
+  // Stored dates/times are in the event's zone; labels are shown in the viewer's zone
+  const eventTz = event.timezone || DEFAULT_TIMEZONE;
+  const viewerTz = viewerTimezone();
+  const sameZone = eventTz === viewerTz;
+  const toViewerTime = (date: string, time: string) => formatTime(convertZone(date, time, eventTz, viewerTz).time);
+
   const slots = generateTimeSlots(event.time_start, event.time_end, GRID_MINS);
   const totalHeight = slots.length * SLOT_H;
 
   const visibleDates =
     view === 'daily' ? [event.dates[dayIdx]] :
-    view === 'weekly' ? currentWeekDates() :
+    view === 'weekly' ? weekDates(todayInZone(eventTz)) :
     event.dates;
 
   // Map: date → bookings[]
@@ -274,13 +292,58 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
         )}
 
         {view === 'monthly' && (
-          <div className="text-sm text-gray-600">
-            All available slots for {event.dates.length} days
+          <div className="text-sm font-semibold text-gray-700">
+            {new Date(todayInZone(eventTz) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
           </div>
         )}
       </div>
 
-      {/* Scrollable grid with synced header */}
+      <p className="text-xs text-gray-500 mb-2">
+        Times shown in your time zone ({shortZoneName(viewerTz)})
+        {!sameZone && <> · columns are dates at the equipment ({eventTz.replace(/_/g, ' ')}, {shortZoneName(eventTz)})</>}
+      </p>
+
+      {view === 'monthly' ? (
+        <div className="grid grid-cols-7 border-t border-l border-gray-200">
+          {WEEKDAYS.map(d => (
+            <div key={d} className="py-2 text-center text-xs font-semibold text-gray-600 border-r border-b border-gray-200 bg-gray-50">
+              {d}
+            </div>
+          ))}
+          {monthCells(todayInZone(eventTz)).map((date, i) => {
+            if (!date) return <div key={i} className="min-h-24 border-r border-b border-gray-200 bg-gray-50/50" />;
+            const idx = event.dates.indexOf(date);
+            const dayBookings = bookingsByDate.get(date) || [];
+            const isToday = date === todayInZone(eventTz);
+            return (
+              <div
+                key={date}
+                onClick={() => { if (idx !== -1) { setDayIdx(idx); setView('daily'); } }}
+                className={`min-h-24 p-1.5 border-r border-b border-gray-200 text-xs overflow-hidden
+                  ${idx !== -1 ? 'cursor-pointer hover:bg-blue-50' : 'bg-gray-50 text-gray-400'}`}
+                title={idx !== -1 ? 'Open day view' : 'Not bookable'}
+              >
+                <div className={`mb-1 w-6 h-6 flex items-center justify-center rounded-full font-semibold
+                  ${isToday ? 'bg-blue-600 text-white' : 'text-gray-700'}`}>
+                  {Number(date.slice(8))}
+                </div>
+                {dayBookings.slice(0, 4).map(b => (
+                  <div
+                    key={b.id}
+                    className="flex items-center gap-1 text-[11px] text-gray-600 truncate"
+                    title={`${b.participant_name}: ${toViewerTime(b.date, b.time_start)} – ${toViewerTime(b.date, b.time_end)}`}
+                  >
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nameToColorHex(b.participant_name) }} />
+                    {toViewerTime(b.date, b.time_start)} – {toViewerTime(b.date, b.time_end)}
+                  </div>
+                ))}
+                {dayBookings.length > 4 && <div className="text-[11px] text-gray-500">+{dayBookings.length - 4} more</div>}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+      /* Scrollable grid with synced header */
       <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 560 }}>
         {/* Date header row (inside scroll container for horizontal sync) */}
         <div className="flex border-b border-gray-200 sticky top-0 bg-white z-5">
@@ -302,7 +365,7 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
                 className="absolute right-2 text-xs text-gray-900 -translate-y-[9px] pointer-events-none"
                 style={{ top: i * SLOT_H }}
               >
-                {slot.endsWith(':00') ? formatTime(slot) : ''}
+                {slot.endsWith(':00') ? toViewerTime(visibleDates[0], slot) : ''}
               </div>
             ))}
           </div>
@@ -359,7 +422,7 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
                     <div className="font-semibold leading-tight truncate">{booking.participant_name}</div>
                     {height > 30 && (
                       <div className="opacity-80 text-[10px] mt-0.5">
-                        {formatTime(booking.time_start)} – {formatTime(booking.time_end)}
+                        {toViewerTime(booking.date, booking.time_start)} – {toViewerTime(booking.date, booking.time_end)}
                       </div>
                     )}
                   </div>
@@ -369,6 +432,7 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
           ))}
         </div>
       </div>
+      )}
 
       {/* Legend */}
       <div className="mt-3 flex items-center gap-5 text-xs text-gray-500 pt-2 border-t border-gray-100">
@@ -388,6 +452,7 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
           date={pendingBooking.date}
           timeStart={pendingBooking.timeStart}
           timeEnd={pendingBooking.timeEnd}
+          eventTz={eventTz}
           onClose={() => setPendingBooking(null)}
           onBooked={() => {
             setPendingBooking(null);
@@ -400,6 +465,7 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
         <EditBookingModal
           booking={editingBooking}
           eventId={event.id}
+          eventTz={eventTz}
           onClose={() => setEditingBooking(null)}
           onUpdated={() => {
             setEditingBooking(null);

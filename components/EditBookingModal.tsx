@@ -2,25 +2,38 @@
 
 import { useState } from 'react';
 import { Booking } from '@/lib/db';
-import { formatTime } from '@/lib/utils';
+import { formatDate, convertZone, viewerTimezone } from '@/lib/utils';
 
 interface Props {
   booking: Booking;
   eventId: string;
+  eventTz: string;
   onClose: () => void;
   onUpdated: () => void;
   adminToken?: string | null;
 }
 
-export default function EditBookingModal({ booking, eventId, onClose, onUpdated, adminToken }: Props) {
+export default function EditBookingModal({ booking, eventId, eventTz, onClose, onUpdated, adminToken }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [timeStart, setTimeStart] = useState(booking.time_start);
-  const [timeEnd, setTimeEnd] = useState(booking.time_end);
+  // Inputs are in the viewer's zone; converted back to the event's zone on save
+  const viewerTz = viewerTimezone();
+  const localStart = convertZone(booking.date, booking.time_start, eventTz, viewerTz);
+  const localEnd = convertZone(booking.date, booking.time_end, eventTz, viewerTz);
+  const [timeStart, setTimeStart] = useState(localStart.time);
+  const [timeEnd, setTimeEnd] = useState(localEnd.time);
 
   async function handleSave() {
-    if (timeStart >= timeEnd) {
-      setError('End time must be after start time.');
+    const start = convertZone(localStart.date, timeStart, viewerTz, eventTz);
+    // End date follows the start (next day if the end time is earlier on the clock)
+    let end = convertZone(localStart.date, timeEnd, viewerTz, eventTz);
+    if (timeEnd <= timeStart) {
+      const next = new Date(localStart.date + 'T00:00:00Z');
+      next.setUTCDate(next.getUTCDate() + 1);
+      end = convertZone(next.toISOString().slice(0, 10), timeEnd, viewerTz, eventTz);
+    }
+    if (end.date !== start.date || end.time <= start.time) {
+      setError('End time must be after start time, on the same day at the equipment.');
       return;
     }
 
@@ -33,9 +46,9 @@ export default function EditBookingModal({ booking, eventId, onClose, onUpdated,
       body: JSON.stringify({
         booking_id: booking.id,
         token,
-        date: booking.date,
-        time_start: timeStart,
-        time_end: timeEnd,
+        date: start.date,
+        time_start: start.time,
+        time_end: end.time,
       }),
     });
 
@@ -85,7 +98,7 @@ export default function EditBookingModal({ booking, eventId, onClose, onUpdated,
         <div className="space-y-4 mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-            <div className="text-sm text-gray-600">{booking.date}</div>
+            <div className="text-sm text-gray-600">{formatDate(localStart.date)}</div>
           </div>
 
           <div>
