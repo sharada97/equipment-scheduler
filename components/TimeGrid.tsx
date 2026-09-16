@@ -36,7 +36,7 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 interface Props {
   event: Event;
   bookings: Booking[];
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   adminToken?: string | null;
 }
 
@@ -53,11 +53,13 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [ownedBookingIds, setOwnedBookingIds] = useState<Set<number>>(new Set());
 
-  // For dragging existing bookings
-  const [draggedBooking, setDraggedBooking] = useState<Booking | null>(null);
-  const [dragStartY, setDragStartY] = useState<number | null>(null);
-  const draggedBookingRef = useRef<Booking | null>(null);
-  const dragStartYRef = useRef<number | null>(null);
+  // Dragging existing bookings: move the whole block, or resize from its top/bottom edge
+  type BookingDrag = { booking: Booking; mode: 'move' | 'start' | 'end'; startY: number; deltaSlots: number };
+  const [bookingDrag, setBookingDrag] = useState<BookingDrag | null>(null);
+  const bookingDragRef = useRef<BookingDrag | null>(null);
+  // Keeps the dropped position on screen until the refreshed bookings arrive
+  const [savedPreview, setSavedPreview] = useState<{ id: number; start: string; end: string } | null>(null);
+  const [dragError, setDragError] = useState('');
 
   // Load owned booking tokens on mount and whenever bookings change
   useEffect(() => {
@@ -160,83 +162,84 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
     return () => document.removeEventListener('mouseup', onUp);
   }, [finalizeSelection]);
 
-  // Handlers for dragging existing bookings
-  const handleBookingMouseDown = (e: React.MouseEvent, booking: Booking) => {
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const fromMin = (n: number) => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+
+  // New start/end for a booking after dragging by `deltaSlots`, kept inside the event hours
+  function draggedTimes(booking: Booking, mode: BookingDrag['mode'], deltaSlots: number) {
+    const evStart = toMin(event.time_start), evEnd = toMin(event.time_end);
+    let start = toMin(booking.time_start), end = toMin(booking.time_end);
+    const d = deltaSlots * GRID_MINS;
+    if (mode === 'move') {
+      const shift = Math.min(Math.max(d, evStart - start), evEnd - end);
+      start += shift; end += shift;
+    } else if (mode === 'start') {
+      start = Math.min(Math.max(start + d, evStart), end - GRID_MINS);
+    } else {
+      end = Math.max(Math.min(end + d, evEnd), start + GRID_MINS);
+    }
+    return { start: fromMin(start), end: fromMin(end) };
+  }
+
+  function handleBookingMouseDown(e: React.MouseEvent, booking: Booking, mode: BookingDrag['mode']) {
     e.stopPropagation();
-    draggedBookingRef.current = booking;
-    dragStartYRef.current = e.clientY;
-    setDraggedBooking(booking);
-    setDragStartY(e.clientY);
-  };
+    e.preventDefault();
+    setDragError('');
+    const drag = { booking, mode, startY: e.clientY, deltaSlots: 0 };
+    bookingDragRef.current = drag;
+    setBookingDrag(drag);
+  }
 
-  const handleBookingMouseMove = (e: React.MouseEvent) => {
-    if (!draggedBookingRef.current || dragStartYRef.current === null) return;
-  };
-
-  const handleBookingMouseUp = useCallback(async (e: React.MouseEvent, booking: Booking) => {
-    e.stopPropagation();
-    if (!draggedBookingRef.current || dragStartYRef.current === null) {
-      draggedBookingRef.current = null;
-      dragStartYRef.current = null;
-      setDraggedBooking(null);
-      setDragStartY(null);
-      return;
-    }
-
-    const deltaY = e.clientY - dragStartYRef.current;
-    draggedBookingRef.current = null;
-    dragStartYRef.current = null;
-    setDraggedBooking(null);
-    setDragStartY(null);
-
-    // If drag is small, open edit modal instead
-    if (Math.abs(deltaY) < 5) {
-      setEditingBooking(booking);
-      return;
-    }
-
-    // Calculate time change based on pixel offset
-    const slotPixels = SLOT_H;
-    const minutesPerSlot = GRID_MINS;
-    const deltaMinutes = Math.round((deltaY / slotPixels) * minutesPerSlot);
-
-    // Calculate new times
-    const [startH, startM] = booking.time_start.split(':').map(Number);
-    const [endH, endM] = booking.time_end.split(':').map(Number);
-    const startTotalMin = startH * 60 + startM + deltaMinutes;
-    const endTotalMin = endH * 60 + endM + deltaMinutes;
-
-    // Validate times are within event bounds
-    const [eventStartH, eventStartM] = event.time_start.split(':').map(Number);
-    const [eventEndH, eventEndM] = event.time_end.split(':').map(Number);
-    const eventStartMin = eventStartH * 60 + eventStartM;
-    const eventEndMin = eventEndH * 60 + eventEndM;
-
-    if (startTotalMin < eventStartMin || endTotalMin > eventEndMin) {
-      return; // Out of bounds
-    }
-
-    const newTimeStart = `${String(Math.floor(startTotalMin / 60)).padStart(2, '0')}:${String(startTotalMin % 60).padStart(2, '0')}`;
-    const newTimeEnd = `${String(Math.floor(endTotalMin / 60)).padStart(2, '0')}:${String(endTotalMin % 60).padStart(2, '0')}`;
-
-    // Call update API
-    const token = adminToken || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('bookingTokens') || '{}')[booking.id.toString()] : null);
+  const saveBookingTimes = useCallback(async (booking: Booking, start: string, end: string) => {
+    setSavedPreview({ id: booking.id, start, end });
+    const token = adminToken || JSON.parse(localStorage.getItem('bookingTokens') || '{}')[booking.id.toString()];
     const res = await fetch(`/api/events/${event.id}/book`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        booking_id: booking.id,
-        token,
-        date: booking.date,
-        time_start: newTimeStart,
-        time_end: newTimeEnd,
-      }),
+      body: JSON.stringify({ booking_id: booking.id, token, date: booking.date, time_start: start, time_end: end }),
     });
-
-    if (res.ok) {
-      onRefresh();
+    if (!res.ok) {
+      setDragError(res.status === 409 ? 'That time overlaps another booking.' : 'Could not update booking.');
     }
-  }, [event, adminToken, onRefresh]);
+    await onRefresh();
+    setSavedPreview(null);
+  }, [event.id, adminToken, onRefresh]);
+
+  const dragActive = bookingDrag !== null;
+  useEffect(() => {
+    if (!dragActive) return;
+    const onMove = (e: MouseEvent) => {
+      const drag = bookingDragRef.current;
+      if (!drag) return;
+      const deltaSlots = Math.round((e.clientY - drag.startY) / SLOT_H);
+      if (deltaSlots !== drag.deltaSlots) {
+        bookingDragRef.current = { ...drag, deltaSlots };
+        setBookingDrag(bookingDragRef.current);
+      }
+    };
+    const onUp = (e: MouseEvent) => {
+      const drag = bookingDragRef.current;
+      bookingDragRef.current = null;
+      setBookingDrag(null);
+      if (!drag) return;
+      // A click (no real movement) on the block opens the edit modal
+      if (Math.abs(e.clientY - drag.startY) < 5) {
+        if (drag.mode === 'move') setEditingBooking(drag.booking);
+        return;
+      }
+      const { start, end } = draggedTimes(drag.booking, drag.mode, drag.deltaSlots);
+      if (start !== drag.booking.time_start || end !== drag.booking.time_end) {
+        saveBookingTimes(drag.booking, start, end);
+      }
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragActive, saveBookingTimes]);
 
   return (
     <div className="select-none">
@@ -401,8 +404,13 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
 
               {/* Booking blocks */}
               {(bookingsByDate.get(date) || []).map(booking => {
-                const startIdx = slotIdxForTime(booking.time_start);
-                const endIdx = slotIdxForTime(booking.time_end);
+                const isDragged = bookingDrag?.booking.id === booking.id;
+                const { start: timeStart, end: timeEnd } =
+                  isDragged ? draggedTimes(booking, bookingDrag.mode, bookingDrag.deltaSlots) :
+                  savedPreview?.id === booking.id ? savedPreview :
+                  { start: booking.time_start, end: booking.time_end };
+                const startIdx = slotIdxForTime(timeStart);
+                const endIdx = slotIdxForTime(timeEnd);
                 const top = startIdx * SLOT_H;
                 const height = Math.max((endIdx - startIdx) * SLOT_H, SLOT_H);
                 const color = nameToColorHex(booking.participant_name);
@@ -410,19 +418,31 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
                 return (
                   <div
                     key={booking.id}
-                    className={`absolute rounded z-10 overflow-hidden p-1.5 text-white text-xs transition-opacity ${
-                      isOwned ? 'cursor-grab hover:opacity-80 active:cursor-grabbing' : 'cursor-default opacity-70'
-                    } ${draggedBooking?.id === booking.id ? 'opacity-60' : ''}`}
+                    className={`group absolute rounded overflow-hidden p-1.5 text-white text-xs ${
+                      isOwned ? 'cursor-grab hover:opacity-90' : 'cursor-default opacity-70'
+                    } ${isDragged ? 'z-20 opacity-80 shadow-lg ring-2 ring-white cursor-grabbing' : 'z-10'}`}
                     style={{ top: top + 1, height: height - 2, left: 3, right: 3, backgroundColor: color }}
-                    onMouseDown={(e) => isOwned && handleBookingMouseDown(e, booking)}
-                    onMouseMove={(e) => isOwned && handleBookingMouseMove(e)}
-                    onMouseUp={(e) => isOwned && handleBookingMouseUp(e, booking)}
-                    title={isOwned ? 'Drag to move time, click to edit' : 'Not your booking'}
+                    onMouseDown={(e) => isOwned ? handleBookingMouseDown(e, booking, 'move') : e.stopPropagation()}
+                    title={isOwned ? 'Drag to move, drag top/bottom edge to change duration, click to edit' : 'Not your booking'}
                   >
+                    {isOwned && (
+                      <>
+                        <div
+                          className="absolute inset-x-0 top-0 h-2 cursor-ns-resize"
+                          onMouseDown={(e) => handleBookingMouseDown(e, booking, 'start')}
+                        />
+                        <div
+                          className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize flex justify-center items-end pb-0.5"
+                          onMouseDown={(e) => handleBookingMouseDown(e, booking, 'end')}
+                        >
+                          <div className="w-6 h-0.5 rounded bg-white/70 opacity-0 group-hover:opacity-100" />
+                        </div>
+                      </>
+                    )}
                     <div className="font-semibold leading-tight truncate">{booking.participant_name}</div>
                     {height > 30 && (
                       <div className="opacity-80 text-[10px] mt-0.5">
-                        {toViewerTime(booking.date, booking.time_start)} – {toViewerTime(booking.date, booking.time_end)}
+                        {toViewerTime(booking.date, timeStart)} – {toViewerTime(booking.date, timeEnd)}
                       </div>
                     )}
                   </div>
@@ -442,8 +462,9 @@ export default function TimeGrid({ event, bookings, onRefresh, adminToken }: Pro
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-4 h-4 rounded bg-blue-500" />
-          <span>Booked</span>
+          <span>Booked — drag to move, drag bottom edge to resize</span>
         </div>
+        {dragError && <span className="text-red-600">{dragError}</span>}
       </div>
 
       {pendingBooking && (
