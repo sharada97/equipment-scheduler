@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import TimeGrid from '@/components/TimeGrid';
 import AboutModal from '@/components/AboutModal';
 import SupportModal from '@/components/SupportModal';
@@ -134,6 +135,12 @@ export default function EventPage() {
               <p className="text-gray-500 mt-0.5">{event.equipment_name}</p>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
+              <Link
+                href="/create"
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium px-4 py-2 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"
+              >
+                + New Schedule
+              </Link>
               {adminToken && (
                 <button
                   onClick={() => setShowEditModal(true)}
